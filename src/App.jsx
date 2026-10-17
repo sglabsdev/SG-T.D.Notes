@@ -46,7 +46,9 @@ import {
   Pin,
   Clock3,
   AlignLeft,
-  Eraser
+  Eraser,
+  MoreVertical,
+  Pencil
 } from 'lucide-react';
 
 const STORAGE_KEY_TRADES = 'NIFTY_LTP_TRADES_V2';
@@ -72,6 +74,29 @@ const NOTE_COLORS = {
   red: 'border-rose-500/40 bg-rose-500/10 text-rose-300',
   purple: 'border-violet-500/40 bg-violet-500/10 text-violet-300'
 };
+
+const NOTE_SURFACES = {
+  cyan: 'border-cyan-500/50 bg-gradient-to-br from-cyan-950/50 via-[#0d1321] to-[#0d1321]',
+  blue: 'border-blue-500/50 bg-gradient-to-br from-blue-950/50 via-[#0d1321] to-[#0d1321]',
+  green: 'border-emerald-500/50 bg-gradient-to-br from-emerald-950/50 via-[#0d1321] to-[#0d1321]',
+  amber: 'border-amber-500/50 bg-gradient-to-br from-amber-950/50 via-[#0d1321] to-[#0d1321]',
+  red: 'border-rose-500/50 bg-gradient-to-br from-rose-950/50 via-[#0d1321] to-[#0d1321]',
+  purple: 'border-violet-500/50 bg-gradient-to-br from-violet-950/50 via-[#0d1321] to-[#0d1321]'
+};
+
+const STORAGE_KEY_RULES = 'COA_SMART_RULES_V1';
+const DEFAULT_TRADING_RULES = [
+  { id: 'rule-1', title: 'Trade the plan', content: 'Entry se pehle setup, entry trigger, stop-loss aur exit plan clear hona chahiye. Sirf scenario label ya guess par trade mat lo.', color: 'cyan', pinned: true },
+  { id: 'rule-2', title: 'Key levels par hi act karo', content: 'EOS/EOR/diversion ya apne predefined level par price behaviour dekho. Mid-range mein FOMO entry avoid karo.', color: 'cyan', pinned: false },
+  { id: 'rule-3', title: 'Confirmation ka wait', content: 'Touch alone signal nahi hai. Rejection, breakout/retest ya apne tested trigger ki confirmation ke baad hi entry consider karo.', color: 'cyan', pinned: false },
+  { id: 'rule-4', title: 'Risk pehle calculate karo', content: 'Stop-loss entry se pehle set karo. Quantity aise rakho ki stop hit hone par loss tumhari predefined risk limit ke andar rahe.', color: 'cyan', pinned: true },
+  { id: 'rule-5', title: 'Reward vs risk check', content: 'Trade ka realistic target aur risk compare karo. Agar potential reward tumhare tested plan ke hisaab se worthwhile nahi, trade skip karo.', color: 'green', pinned: false },
+  { id: 'rule-6', title: 'Loss ko aur bada mat karo', content: 'Stop-loss ko door mat shift karo, losing position mein bina plan averaging mat karo, aur loss recover karne ke liye impulsive trade mat lo.', color: 'green', pinned: false },
+  { id: 'rule-7', title: 'SOC means wait', content: 'Signals conflicting hon, level unclear ho, ya market bahut fast ho to no-trade bhi valid decision hai. Har move pakadna zaroori nahi.', color: 'amber', pinned: true },
+  { id: 'rule-8', title: 'Daily loss limit rakho', content: 'Daily max-loss limit pehle decide karo. Limit hit ho to trading band karo; revenge trading aur repeated re-entry se bacho.', color: 'amber', pinned: false },
+  { id: 'rule-9', title: 'Options mein extra caution', content: 'Option premium volatility, time decay, spread aur slippage se affect hota hai. Liquid contracts use karo aur order execution ka risk samajhkar trade karo.', color: 'purple', pinned: false },
+  { id: 'rule-10', title: 'Journal and review', content: 'Har trade ka reason, risk, exit aur rule-following record karo. Results ko kaafi trades ke sample par review karo; ek trade se strategy judge mat karo.', color: 'purple', pinned: false }
+];
 
 const INITIAL_TRADES = [
   {
@@ -201,7 +226,9 @@ export default function App() {
   const [noteCategoryDraft, setNoteCategoryDraft] = useState('Trading');
   const [notesEditorReady, setNotesEditorReady] = useState(false);
   const [showNoteEditingTools, setShowNoteEditingTools] = useState(false);
+  const [openNoteMenuId, setOpenNoteMenuId] = useState(null);
   const noteEditorRef = useRef(null);
+  const noteSelectionRef = useRef(null);
   const [trades, setTrades] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_TRADES);
@@ -268,8 +295,20 @@ export default function App() {
   const [filterLocation, setFilterLocation] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Rules modal (read-only trading rules; no checklist)
+  // Editable trading rules are stored separately from notes and trade history.
   const [isRulesOpen, setIsRulesOpen] = useState(false);
+  const [rules, setRules] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_RULES);
+      return saved ? JSON.parse(saved) : DEFAULT_TRADING_RULES;
+    } catch (e) {
+      return DEFAULT_TRADING_RULES;
+    }
+  });
+  const [openRuleMenuId, setOpenRuleMenuId] = useState(null);
+  const [editingRuleId, setEditingRuleId] = useState(null);
+  const [ruleTitleDraft, setRuleTitleDraft] = useState('');
+  const [ruleContentDraft, setRuleContentDraft] = useState('');
   const [toast, setToast] = useState(null);
 
   // Persistence Effects
@@ -297,6 +336,15 @@ export default function App() {
       showToast('Notes save nahi ho paaye. Browser storage check karein.', 'error');
     }
   }, [notes]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_RULES, JSON.stringify(rules));
+    } catch (e) {
+      console.error('Unable to save trading rules:', e);
+      showToast('Rules save nahi ho paaye. Browser storage check karein.', 'error');
+    }
+  }, [rules]);
 
   const activeNote = notes.find((note) => note.id === activeNoteId) || null;
 
@@ -380,20 +428,72 @@ export default function App() {
     showToast('New note created. Auto-save enabled.', 'success');
   };
 
-  const deleteActiveNote = () => {
-    if (!activeNote) return;
-    if (!window.confirm(`Delete “${activeNote.title}”? This cannot be undone.`)) return;
-    const remaining = notes.filter((note) => note.id !== activeNote.id);
+  const deleteNoteById = (noteId) => {
+    const target = notes.find((note) => note.id === noteId);
+    if (!target) return;
+    if (!window.confirm(`Delete “${target.title || 'Untitled note'}”? This cannot be undone.`)) return;
+    const remaining = notes.filter((note) => note.id !== noteId);
     setNotes(remaining);
-    setActiveNoteId(remaining[0]?.id || '');
-    setNotesEditorReady(false);
+    if (activeNoteId === noteId) {
+      setActiveNoteId(remaining[0]?.id || '');
+      setShowNoteEditingTools(false);
+      setNotesEditorReady(false);
+    }
+    setOpenNoteMenuId(null);
     showToast('Note deleted.', 'success');
   };
 
+  const deleteActiveNote = () => {
+    if (activeNote) deleteNoteById(activeNote.id);
+  };
+
+  const saveNoteSelection = () => {
+    const editor = noteEditorRef.current;
+    const selection = window.getSelection();
+    if (!editor || !selection || selection.rangeCount === 0) return;
+    const range = selection.getRangeAt(0);
+    if (editor.contains(range.commonAncestorContainer)) {
+      noteSelectionRef.current = range.cloneRange();
+    }
+  };
+
   const runNoteCommand = (command, value = null) => {
-    noteEditorRef.current?.focus();
-    document.execCommand(command, false, value);
-    if (noteEditorRef.current) updateActiveNote({ content: noteEditorRef.current.innerHTML });
+    const editor = noteEditorRef.current;
+    if (!editor) return;
+    editor.focus();
+    const selection = window.getSelection();
+    if (noteSelectionRef.current && selection) {
+      selection.removeAllRanges();
+      selection.addRange(noteSelectionRef.current);
+    }
+    const commandValue = command === 'formatBlock' && value ? value.toUpperCase() : value;
+    document.execCommand(command, false, commandValue);
+    saveNoteSelection();
+    updateActiveNote({ content: editor.innerHTML });
+  };
+
+  const startRuleEdit = (rule) => {
+    setEditingRuleId(rule.id);
+    setRuleTitleDraft(rule.title || '');
+    setRuleContentDraft(rule.content || '');
+    setOpenRuleMenuId(null);
+  };
+
+  const saveRuleEdit = (ruleId) => {
+    setRules((current) => current.map((rule) => rule.id === ruleId
+      ? { ...rule, title: ruleTitleDraft.trim() || 'Untitled rule', content: ruleContentDraft, updatedAt: new Date().toISOString() }
+      : rule));
+    setEditingRuleId(null);
+    showToast('Rule saved automatically.', 'success');
+  };
+
+  const deleteRule = (ruleId) => {
+    const rule = rules.find((item) => item.id === ruleId);
+    if (!rule || !window.confirm(`Delete rule “${rule.title}”? This cannot be undone.`)) return;
+    setRules((current) => current.filter((item) => item.id !== ruleId));
+    if (editingRuleId === ruleId) setEditingRuleId(null);
+    setOpenRuleMenuId(null);
+    showToast('Rule deleted.', 'success');
   };
 
   const exportTradingNotes = () => {
@@ -1795,7 +1895,6 @@ export default function App() {
                 <div>
                   <div className="flex items-center gap-2 text-cyan-300"><NotebookPen className="h-5 w-5" /><span className="text-xs font-bold uppercase tracking-[0.2em]">Knowledge workspace</span></div>
                   <h2 className="mt-2 text-2xl font-black text-white sm:text-3xl">Trading Notes Studio</h2>
-                  <p className="mt-1 max-w-2xl text-sm text-slate-400">Scenario search, rich-text notes, colour labels aur automatic local saving — all in one workspace.</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <button onClick={createTradingNote} className="inline-flex items-center gap-2 rounded-xl bg-cyan-400 px-4 py-2.5 text-sm font-bold text-slate-950 hover:bg-cyan-300"><FilePlus2 className="h-4 w-4" /> New note</button>
@@ -1805,7 +1904,7 @@ export default function App() {
               <div className="mt-5 grid gap-3 md:grid-cols-[1fr_auto]">
                 <label className="flex items-center gap-3 rounded-xl border border-slate-700 bg-[#090e19] px-4 py-3 focus-within:border-cyan-400">
                   <Search className="h-5 w-5 shrink-0 text-cyan-400" />
-                  <input value={noteSearch} onChange={(e) => setNoteSearch(e.target.value)} placeholder="Search: Scenario - 1,2,3 or EOS, EOR" className="w-full bg-transparent text-sm text-white outline-none placeholder:text-slate-500" />
+                  <input value={noteSearch} onChange={(e) => setNoteSearch(e.target.value)} placeholder="Search: Scenario..." className="w-full bg-transparent text-sm text-white outline-none placeholder:text-slate-500" />
                   {noteSearch && <button onClick={() => setNoteSearch('')} className="text-slate-400 hover:text-white" title="Clear search"><X className="h-4 w-4" /></button>}
                 </label>
                 <select value={noteFilter} onChange={(e) => setNoteFilter(e.target.value)} className="rounded-xl border border-slate-700 bg-[#090e19] px-3 py-3 text-sm text-slate-200 outline-none focus:border-cyan-400">
@@ -1815,125 +1914,108 @@ export default function App() {
               {noteSearch.trim() && <p className="mt-2 text-xs text-slate-400">{filteredNotes.length} matching note(s). Comma-separated scenario numbers are supported.</p>}
             </div>
 
-            <div className="grid gap-5 xl:grid-cols-[300px_minmax(0,1fr)]">
-              <aside className="overflow-hidden rounded-2xl border border-slate-800 bg-[#0d1321]">
-                <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3"><h3 className="text-sm font-bold text-white">Your library</h3><span className="rounded-full bg-slate-800 px-2 py-1 text-xs text-cyan-300">{filteredNotes.length}</span></div>
-                <div className="max-h-[640px] space-y-2 overflow-y-auto p-3">
-                  {filteredNotes.length === 0 && <div className="px-3 py-8 text-center"><Search className="mx-auto mb-2 h-7 w-7 text-slate-600" /><p className="text-sm text-slate-400">No notes found.</p><button onClick={createTradingNote} className="mt-3 text-sm font-semibold text-cyan-300 hover:text-cyan-200">Create a new note</button></div>}
-                  {filteredNotes.map((note) => (
-                    <button key={note.id} onClick={() => { setActiveNoteId(note.id); setNotesEditorReady(false); }} className={`w-full rounded-xl border p-3 text-left transition-all ${activeNoteId === note.id ? 'border-cyan-400/70 bg-cyan-400/10 shadow-lg shadow-cyan-950/30' : 'border-slate-800 bg-[#111827] hover:border-slate-600'}`}>
-                      <div className="mb-2 flex items-center justify-between gap-2"><span className={`rounded-md border px-2 py-0.5 text-[10px] font-bold uppercase ${NOTE_COLORS[note.color] || NOTE_COLORS.cyan}`}>{note.scenario ? `Scenario ${note.scenario}` : note.category || 'Note'}</span>{note.pinned && <Pin className="h-3.5 w-3.5 text-amber-300" />}</div>
-                      <div className={`${noteSearch.trim() ? 'text-sm font-bold' : 'line-clamp-2 text-sm font-bold'} text-slate-100`}>{note.title || 'Untitled note'}</div>
-                      {noteSearch.trim() && (
-                        <div className="mt-2 rounded-lg border border-slate-800 bg-[#090e19] p-3">
-                          <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-cyan-300">Full note</div>
-                          <div className="whitespace-pre-wrap break-words text-xs leading-6 text-slate-300">
-                            {String(note.content || '')
-                              .replace(/<\/(p|div|h[1-6]|li|blockquote)>/gi, '\n')
-                              .replace(/<br\s*\/?\s*>/gi, '\n')
-                              .replace(/<[^>]*>/g, '')
-                              .replace(/&nbsp;/gi, ' ')
-                              .replace(/&amp;/gi, '&')
-                              .replace(/&lt;/gi, '<')
-                              .replace(/&gt;/gi, '>')
-                              .replace(/&quot;/gi, '"')
-                              .replace(/&#39;/gi, "'")
-                              .trim() || 'This note has no content yet.'}
-                          </div>
-                        </div>
-                      )}
-                      <div className="mt-2 flex flex-wrap gap-1">{(Array.isArray(note.tags) ? note.tags : []).slice(0, 3).map((tag) => <span key={tag} className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400">#{tag}</span>)}</div>
-                      <div className="mt-2 flex items-center gap-1 text-[10px] text-slate-500"><Clock3 className="h-3 w-3" />{note.updatedAt ? new Date(note.updatedAt).toLocaleDateString() : 'Not saved'}</div>
-                    </button>
-                  ))}
-                </div>
-              </aside>
+            <style>{`
+              .trading-note-editor h1 { font-size: 1.9rem; line-height: 1.25; font-weight: 800; margin: 1.25rem 0 .65rem; color: #f8fafc; }
+              .trading-note-editor h2 { font-size: 1.45rem; line-height: 1.35; font-weight: 750; margin: 1.1rem 0 .55rem; color: #a5f3fc; }
+              .trading-note-editor h3 { font-size: 1.2rem; line-height: 1.4; font-weight: 700; margin: 1rem 0 .5rem; color: #c4b5fd; }
+              .trading-note-editor p { margin: .55rem 0; }
+              .trading-note-editor ul { list-style: disc; padding-left: 1.5rem; margin: .65rem 0; }
+              .trading-note-editor ol { list-style: decimal; padding-left: 1.5rem; margin: .65rem 0; }
+              .trading-note-editor li { margin: .25rem 0; }
+            `}</style>
+            <style>{`
+              .trading-note-editor h1 { font-size: 1.9rem; line-height: 1.25; font-weight: 800; margin: 1.25rem 0 .65rem; color: #f8fafc; }
+              .trading-note-editor h2 { font-size: 1.45rem; line-height: 1.35; font-weight: 750; margin: 1.1rem 0 .55rem; color: #a5f3fc; }
+              .trading-note-editor h3 { font-size: 1.2rem; line-height: 1.4; font-weight: 700; margin: 1rem 0 .5rem; color: #c4b5fd; }
+              .trading-note-editor p { margin: .55rem 0; }
+              .trading-note-editor ul { list-style: disc; padding-left: 1.5rem; margin: .65rem 0; }
+              .trading-note-editor ol { list-style: decimal; padding-left: 1.5rem; margin: .65rem 0; }
+              .trading-note-editor li { margin: .25rem 0; }
+            `}</style>
 
-              <section className="min-w-0 overflow-hidden rounded-2xl border border-slate-800 bg-[#0d1321]">
-                {!activeNote ? (
-                  <div className="flex min-h-[420px] flex-col items-center justify-center p-8 text-center"><NotebookPen className="mb-3 h-10 w-10 text-slate-600" /><h3 className="text-lg font-bold text-white">Choose a note to start</h3><p className="mt-1 text-sm text-slate-400">Select a scenario on the left or create a new note.</p><button onClick={createTradingNote} className="mt-4 rounded-xl bg-cyan-400 px-4 py-2 text-sm font-bold text-black">Create note</button></div>
-                ) : (
-                  <>
-                    {!showNoteEditingTools && (
-                      <div className="border-b border-slate-800 px-4 py-4 sm:px-5">
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="mb-1 flex items-center gap-2">
-                              <span className={`rounded-md border px-2 py-1 text-[10px] font-bold uppercase ${NOTE_COLORS[noteColorDraft] || NOTE_COLORS.cyan}`}>{activeNote.scenario ? `Scenario ${activeNote.scenario}` : noteCategoryDraft}</span>
-                              <span className="text-xs text-emerald-300"><Check className="mr-1 inline h-3.5 w-3.5" />Auto-save on</span>
-                            </div>
-                            <h3 className="truncate text-lg font-bold text-white">{activeNote.title || 'Untitled note'}</h3>
-                          </div>
-                          <span className="text-xs text-slate-500">Reading mode</span>
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+                <h3 className="text-sm font-bold text-white">Your scenarios & notes</h3>
+                <span className="rounded-full bg-slate-800 px-2.5 py-1 text-xs text-cyan-300">{filteredNotes.length} notes</span>
+              </div>
+              {filteredNotes.length === 0 && (
+                <div className="rounded-2xl border border-dashed border-slate-700 bg-[#0d1321] px-4 py-10 text-center">
+                  <Search className="mx-auto mb-2 h-7 w-7 text-slate-600" />
+                  <p className="text-sm text-slate-400">No notes found.</p>
+                  <button onClick={createTradingNote} className="mt-3 text-sm font-semibold text-cyan-300 hover:text-cyan-200">Create a new note</button>
+                </div>
+              )}
+
+              {filteredNotes.map((note) => {
+                const isOpen = activeNoteId === note.id;
+                return (
+                  <article key={note.id} className={`overflow-visible rounded-2xl border transition-all ${isOpen ? (NOTE_SURFACES[note.color] || NOTE_SURFACES.cyan) + ' shadow-xl shadow-black/20' : 'border-slate-800 bg-[#0d1321] hover:border-slate-600'}`}>
+                    <div className="flex items-start gap-3 p-4 sm:p-5">
+                      <button type="button" onClick={() => { setActiveNoteId(note.id); setNotesEditorReady(false); setShowNoteEditingTools(false); }} aria-expanded={isOpen} className="min-w-0 flex-1 text-left">
+                        <div className="mb-2 flex flex-wrap items-center gap-2">
+                          <span className={`rounded-md border px-2 py-1 text-[10px] font-black uppercase ${NOTE_COLORS[note.color] || NOTE_COLORS.cyan}`}>{note.scenario ? `Scenario ${note.scenario}` : note.category || 'Note'}</span>
+                          {note.pinned && <Pin className="h-3.5 w-3.5 text-amber-300" />}
+                          <span className="text-[10px] text-slate-500">{note.updatedAt ? new Date(note.updatedAt).toLocaleDateString() : 'Not saved'}</span>
                         </div>
-                      </div>
-                    )}
-                    {showNoteEditingTools && (
-                    <>
-                    <div className="border-b border-slate-800 p-4 sm:p-5">
-                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2"><div className="flex items-center gap-2"><span className={`rounded-md border px-2 py-1 text-[10px] font-bold uppercase ${NOTE_COLORS[noteColorDraft] || NOTE_COLORS.cyan}`}>{activeNote.scenario ? `Scenario ${activeNote.scenario}` : noteCategoryDraft}</span><span className="text-xs text-emerald-300"><Check className="mr-1 inline h-3.5 w-3.5" />Auto-save on</span></div><div className="flex gap-2"><button onClick={() => updateActiveNote({ pinned: !activeNote.pinned })} className={`rounded-lg border px-3 py-2 text-xs font-semibold ${activeNote.pinned ? 'border-amber-400/50 bg-amber-400/10 text-amber-300' : 'border-slate-700 text-slate-400 hover:text-white'}`}><Pin className="mr-1 inline h-3.5 w-3.5" />{activeNote.pinned ? 'Pinned' : 'Pin note'}</button><button onClick={deleteActiveNote} className="rounded-lg border border-rose-500/30 px-3 py-2 text-xs font-semibold text-rose-300 hover:bg-rose-500/10"><Trash2 className="mr-1 inline h-3.5 w-3.5" />Delete</button></div></div>
-                      <input value={noteTitleDraft} onChange={(e) => { setNoteTitleDraft(e.target.value); updateActiveNote({ title: e.target.value }); }} placeholder="Note title..." className="w-full bg-transparent text-xl font-black text-white outline-none placeholder:text-slate-600 sm:text-2xl" />
-                      <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                        <label className="text-xs text-slate-400">Scenario number<input value={activeNote.scenario || ''} onChange={(e) => updateActiveNote({ scenario: e.target.value.replace(/[^0-9]/g, '').slice(0, 2) })} placeholder="e.g. 5" className="mt-1 w-full rounded-lg border border-slate-700 bg-[#090e19] px-3 py-2 text-sm text-white outline-none focus:border-cyan-400" /></label>
-                        <label className="text-xs text-slate-400">Category<select value={noteCategoryDraft} onChange={(e) => { setNoteCategoryDraft(e.target.value); updateActiveNote({ category: e.target.value }); }} className="mt-1 w-full rounded-lg border border-slate-700 bg-[#090e19] px-3 py-2 text-sm text-white outline-none focus:border-cyan-400"><option>Trading</option><option>Scenario</option><option>Psychology</option><option>Review</option></select></label>
-                        <label className="text-xs text-slate-400">Label colour<select value={noteColorDraft} onChange={(e) => { setNoteColorDraft(e.target.value); updateActiveNote({ color: e.target.value }); }} className="mt-1 w-full rounded-lg border border-slate-700 bg-[#090e19] px-3 py-2 text-sm text-white outline-none focus:border-cyan-400"><option value="cyan">Cyan</option><option value="blue">Blue</option><option value="green">Green</option><option value="amber">Amber</option><option value="red">Red</option><option value="purple">Purple</option></select></label>
-                      </div>
-                      <label className="mt-3 block text-xs text-slate-400">Tags (comma separated)<input value={noteTagsDraft} onChange={(e) => { setNoteTagsDraft(e.target.value); updateActiveNote({ tags: e.target.value.split(',').map((tag) => tag.trim()).filter(Boolean) }); }} placeholder="EOS, entry, risk management" className="mt-1 w-full rounded-lg border border-slate-700 bg-[#090e19] px-3 py-2 text-sm text-white outline-none focus:border-cyan-400" /></label>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-1 border-b border-slate-800 bg-[#101827] p-3">
-                      <button type="button" title="Bold" onMouseDown={(e) => e.preventDefault()} onClick={() => runNoteCommand('bold')} className="rounded-lg border border-slate-700 p-2 text-slate-300 hover:border-cyan-400 hover:text-cyan-300"><Bold className="h-4 w-4" /></button>
-                      <button type="button" title="Italic" onMouseDown={(e) => e.preventDefault()} onClick={() => runNoteCommand('italic')} className="rounded-lg border border-slate-700 p-2 text-slate-300 hover:border-cyan-400 hover:text-cyan-300"><Italic className="h-4 w-4" /></button>
-                      <button type="button" title="Heading 1" onMouseDown={(e) => e.preventDefault()} onClick={() => runNoteCommand('formatBlock', 'h1')} className="rounded-lg border border-slate-700 p-2 text-slate-300 hover:border-cyan-400 hover:text-cyan-300"><Heading1 className="h-4 w-4" /></button>
-                      <button type="button" title="Heading 2" onMouseDown={(e) => e.preventDefault()} onClick={() => runNoteCommand('formatBlock', 'h2')} className="rounded-lg border border-slate-700 p-2 text-slate-300 hover:border-cyan-400 hover:text-cyan-300"><Heading2 className="h-4 w-4" /></button>
-                      <button type="button" title="Bullet list" onMouseDown={(e) => e.preventDefault()} onClick={() => runNoteCommand('insertUnorderedList')} className="rounded-lg border border-slate-700 p-2 text-slate-300 hover:border-cyan-400 hover:text-cyan-300"><List className="h-4 w-4" /></button>
-                      <button type="button" title="Numbered list" onMouseDown={(e) => e.preventDefault()} onClick={() => runNoteCommand('insertOrderedList')} className="rounded-lg border border-slate-700 p-2 text-slate-300 hover:border-cyan-400 hover:text-cyan-300"><ListOrdered className="h-4 w-4" /></button>
-                      <div className="mx-1 h-7 w-px bg-slate-700" />
-                      <label title="Text colour" className="flex cursor-pointer items-center gap-1 rounded-lg border border-slate-700 px-2 py-1.5 text-xs text-slate-300 hover:border-cyan-400"><Palette className="h-4 w-4" /><input type="color" aria-label="Text colour" defaultValue="#67e8f9" onChange={(e) => runNoteCommand('foreColor', e.target.value)} className="h-5 w-5 cursor-pointer border-0 bg-transparent p-0" /></label>
-                      <button type="button" title="Highlight" onMouseDown={(e) => e.preventDefault()} onClick={() => runNoteCommand('hiliteColor', '#713f12')} className="rounded-lg border border-slate-700 p-2 text-amber-300 hover:border-amber-400"><Highlighter className="h-4 w-4" /></button>
-                      <button type="button" title="Clear formatting" onMouseDown={(e) => e.preventDefault()} onClick={() => runNoteCommand('removeFormat')} className="rounded-lg border border-slate-700 p-2 text-slate-300 hover:border-cyan-400"><Eraser className="h-4 w-4" /></button>
-                      <div className="ml-auto text-[11px] text-slate-500"><AlignLeft className="mr-1 inline h-3.5 w-3.5" />Rich text editor</div>
-                    </div>
-                    </>
-                    )}
-                    {showNoteEditingTools ? (
-                      <div
-                        ref={noteEditorRef}
-                        contentEditable
-                        suppressContentEditableWarning
-                        onInput={(e) => updateActiveNote({ content: e.currentTarget.innerHTML })}
-                        onBlur={(e) => updateActiveNote({ content: e.currentTarget.innerHTML })}
-                        className="trading-note-editor min-h-[320px] px-5 py-6 text-base leading-8 text-slate-200 outline-none sm:px-8"
-                        data-placeholder="Write your trading plan here..."
-                      />
-                    ) : (
-                      <div
-                        className="trading-note-editor note-reading-content px-5 py-5 text-base leading-8 text-slate-200 sm:px-8"
-                        dangerouslySetInnerHTML={{ __html: activeNote.content || '<p class="text-slate-500">This note has no content yet.</p>' }}
-                      />
-                    )}
-                    <div className="border-t border-slate-800 bg-[#0a101c] px-4 py-3">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setNotesEditorReady(false);
-                          setShowNoteEditingTools((visible) => !visible);
-                        }}
-                        aria-expanded={showNoteEditingTools}
-                        className="flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-sm font-bold text-cyan-200 transition-colors hover:border-cyan-400 hover:bg-cyan-500/20"
-                      >
-                        {showNoteEditingTools ? <><X className="h-4 w-4" /> Hide edit tools</> : <><Sliders className="h-4 w-4" /> Show edit tools</>}
+                        <h3 className="text-base font-black text-white sm:text-lg">{note.title || 'Untitled note'}</h3>
+                        {!isOpen && <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-400">{String(note.content || '').replace(/<\/(p|div|h[1-6]|li|blockquote)>/gi, ' ').replace(/<br\s*\/?\s*>/gi, ' ').replace(/<[^>]*>/g, '').replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').trim() || 'Tap to open full note...'}</p>}
                       </button>
-                      {showNoteEditingTools && (
-                        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-[11px] text-slate-500">Saved in this browser · Export JSON regularly for backup</p>
-                          <span className="text-[11px] text-emerald-300"><Check className="mr-1 inline h-3 w-3" />Changes save automatically</span>
-                        </div>
-                      )}
+                      <div className="relative shrink-0">
+                        <button type="button" title="More actions" aria-label={`Actions for ${note.title || 'note'}`} onClick={() => setOpenNoteMenuId((current) => current === note.id ? null : note.id)} className="rounded-lg border border-slate-700/80 bg-black/10 p-2 text-slate-300 hover:bg-black/25 hover:text-white"><MoreVertical className="h-4 w-4" /></button>
+                        {openNoteMenuId === note.id && (
+                          <div className="absolute right-0 top-10 z-40 w-40 rounded-xl border border-slate-700 bg-[#080d17] p-1.5 shadow-2xl">
+                            <button type="button" onClick={() => { setActiveNoteId(note.id); setNotesEditorReady(false); setShowNoteEditingTools(true); setOpenNoteMenuId(null); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-slate-200 hover:bg-slate-800"><Pencil className="h-3.5 w-3.5" />Edit</button>
+                            <button type="button" onClick={() => { setNotes((current) => current.map((item) => item.id === note.id ? { ...item, pinned: !item.pinned, updatedAt: new Date().toISOString() } : item)); setOpenNoteMenuId(null); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-slate-200 hover:bg-slate-800"><Pin className="h-3.5 w-3.5" />{note.pinned ? 'Unpin' : 'Pin'}</button>
+                            <button type="button" onClick={() => deleteNoteById(note.id)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-rose-300 hover:bg-rose-500/10"><Trash2 className="h-3.5 w-3.5" />Delete</button>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </>
-                )}
-              </section>
+
+                    {isOpen && activeNote && (
+                      <div className="border-t border-white/10">
+                        {showNoteEditingTools ? (
+                          <>
+                            <div className="space-y-3 border-b border-white/10 p-4 sm:p-5">
+                              <div className="flex flex-wrap items-center justify-between gap-2"><span className="text-xs text-emerald-300"><Check className="mr-1 inline h-3.5 w-3.5" />Auto-save on</span><span className="text-[11px] text-slate-400">Edit mode</span></div>
+                              <input value={noteTitleDraft} onChange={(e) => { setNoteTitleDraft(e.target.value); updateActiveNote({ title: e.target.value }); }} placeholder="Note title..." className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xl font-black text-white outline-none placeholder:text-slate-500 focus:border-cyan-400 sm:text-2xl" />
+                              <div className="grid gap-3 sm:grid-cols-3">
+                                <label className="text-xs text-slate-400">Scenario number<input value={activeNote.scenario || ''} onChange={(e) => updateActiveNote({ scenario: e.target.value.replace(/[^0-9]/g, '').slice(0, 2) })} placeholder="e.g. 5" className="mt-1 w-full rounded-lg border border-slate-700 bg-[#090e19] px-3 py-2 text-sm text-white outline-none focus:border-cyan-400" /></label>
+                                <label className="text-xs text-slate-400">Category<select value={noteCategoryDraft} onChange={(e) => { setNoteCategoryDraft(e.target.value); updateActiveNote({ category: e.target.value }); }} className="mt-1 w-full rounded-lg border border-slate-700 bg-[#090e19] px-3 py-2 text-sm text-white outline-none focus:border-cyan-400"><option>Trading</option><option>Scenario</option><option>Psychology</option><option>Review</option></select></label>
+                                <label className="text-xs text-slate-400">Label colour<select value={noteColorDraft} onChange={(e) => { setNoteColorDraft(e.target.value); updateActiveNote({ color: e.target.value }); }} className="mt-1 w-full rounded-lg border border-slate-700 bg-[#090e19] px-3 py-2 text-sm text-white outline-none focus:border-cyan-400"><option value="cyan">Cyan</option><option value="blue">Blue</option><option value="green">Green</option><option value="amber">Amber</option><option value="red">Red</option><option value="purple">Purple</option></select></label>
+                              </div>
+                              <label className="block text-xs text-slate-400">Tags (comma separated)<input value={noteTagsDraft} onChange={(e) => { setNoteTagsDraft(e.target.value); updateActiveNote({ tags: e.target.value.split(',').map((tag) => tag.trim()).filter(Boolean) }); }} placeholder="EOS, entry, risk management" className="mt-1 w-full rounded-lg border border-slate-700 bg-[#090e19] px-3 py-2 text-sm text-white outline-none focus:border-cyan-400" /></label>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1 border-b border-slate-800 bg-[#101827] p-3">
+                              <button type="button" title="Bold" onMouseDown={(e) => e.preventDefault()} onClick={() => runNoteCommand('bold')} className="rounded-lg border border-slate-700 p-2 text-slate-300 hover:border-cyan-400 hover:text-cyan-300"><Bold className="h-4 w-4" /></button>
+                              <button type="button" title="Italic" onMouseDown={(e) => e.preventDefault()} onClick={() => runNoteCommand('italic')} className="rounded-lg border border-slate-700 p-2 text-slate-300 hover:border-cyan-400 hover:text-cyan-300"><Italic className="h-4 w-4" /></button>
+                              <button type="button" title="Heading 1" onMouseDown={(e) => e.preventDefault()} onClick={() => runNoteCommand('formatBlock', 'h1')} className="rounded-lg border border-slate-700 p-2 text-slate-300 hover:border-cyan-400 hover:text-cyan-300"><Heading1 className="h-4 w-4" /></button>
+                              <button type="button" title="Heading 2" onMouseDown={(e) => e.preventDefault()} onClick={() => runNoteCommand('formatBlock', 'h2')} className="rounded-lg border border-slate-700 p-2 text-slate-300 hover:border-cyan-400 hover:text-cyan-300"><Heading2 className="h-4 w-4" /></button>
+                              <button type="button" title="Bullet list" onMouseDown={(e) => e.preventDefault()} onClick={() => runNoteCommand('insertUnorderedList')} className="rounded-lg border border-slate-700 p-2 text-slate-300 hover:border-cyan-400 hover:text-cyan-300"><List className="h-4 w-4" /></button>
+                              <button type="button" title="Numbered list" onMouseDown={(e) => e.preventDefault()} onClick={() => runNoteCommand('insertOrderedList')} className="rounded-lg border border-slate-700 p-2 text-slate-300 hover:border-cyan-400 hover:text-cyan-300"><ListOrdered className="h-4 w-4" /></button>
+                              <div className="mx-1 h-7 w-px bg-slate-700" />
+                              <label title="Text colour" className="flex cursor-pointer items-center gap-1 rounded-lg border border-slate-700 px-2 py-1.5 text-xs text-slate-300 hover:border-cyan-400"><Palette className="h-4 w-4" /><input type="color" aria-label="Text colour" defaultValue="#67e8f9" onChange={(e) => runNoteCommand('foreColor', e.target.value)} className="h-5 w-5 cursor-pointer border-0 bg-transparent p-0" /></label>
+                              <button type="button" title="Highlight" onMouseDown={(e) => e.preventDefault()} onClick={() => runNoteCommand('hiliteColor', '#713f12')} className="rounded-lg border border-slate-700 p-2 text-amber-300 hover:border-amber-400"><Highlighter className="h-4 w-4" /></button>
+                              <button type="button" title="Clear formatting" onMouseDown={(e) => e.preventDefault()} onClick={() => runNoteCommand('removeFormat')} className="rounded-lg border border-slate-700 p-2 text-slate-300 hover:border-cyan-400"><Eraser className="h-4 w-4" /></button>
+                              <span className="ml-auto text-[11px] text-slate-500"><AlignLeft className="mr-1 inline h-3.5 w-3.5" />Rich text editor</span>
+                            </div>
+                            <div ref={noteEditorRef} contentEditable suppressContentEditableWarning onInput={(e) => updateActiveNote({ content: e.currentTarget.innerHTML })} onKeyUp={saveNoteSelection} onMouseUp={saveNoteSelection} onBlur={(e) => updateActiveNote({ content: e.currentTarget.innerHTML })} className="trading-note-editor min-h-[240px] px-5 py-6 text-base leading-8 text-slate-200 outline-none sm:px-8" data-placeholder="Write your trading plan here..." />
+                          </>
+                        ) : (
+                          <>
+                            <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-4 sm:px-6"><span className="text-xs text-emerald-300"><Check className="mr-1 inline h-3.5 w-3.5" />Auto-save on</span><button type="button" onClick={() => { setNotesEditorReady(false); setShowNoteEditingTools(true); }} className="inline-flex items-center gap-2 rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-3 py-2 text-xs font-bold text-cyan-200 hover:bg-cyan-400/20"><Pencil className="h-3.5 w-3.5" />Edit note</button></div>
+                            <div className="trading-note-editor note-reading-content break-words px-5 py-4 text-base leading-8 text-slate-200 sm:px-8 sm:py-5" dangerouslySetInnerHTML={{ __html: activeNote.content || '<p class="text-slate-500">This note has no content yet.</p>' }} />
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/10 bg-black/10 px-4 py-3 sm:px-6"><div className="flex flex-wrap gap-1">{(Array.isArray(activeNote.tags) ? activeNote.tags : []).map((tag) => <span key={tag} className="rounded bg-black/20 px-2 py-1 text-[10px] text-slate-300">#{tag}</span>)}</div><span className="text-[11px] text-slate-500">Saved in this browser · auto-save enabled</span></div>
+                          </>
+                        )}
+                        {showNoteEditingTools && <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/10 bg-black/10 px-4 py-3 sm:px-6"><span className="text-[11px] text-emerald-300"><Check className="mr-1 inline h-3 w-3" />Changes save automatically</span><div className="flex gap-2"><button type="button" onClick={() => { setNotesEditorReady(false); setShowNoteEditingTools(false); }} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-800">Done</button><button type="button" onClick={deleteActiveNote} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/30 px-3 py-2 text-xs font-semibold text-rose-300 hover:bg-rose-500/10"><Trash2 className="h-3.5 w-3.5" />Delete note</button></div></div>}
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
             </div>
+
             <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-xs leading-5 text-amber-100/80"><strong className="text-amber-300">Trading risk reminder:</strong> Scenario notes are for organizing your own plan, not guaranteed buy/sell signals. Verify live levels, position size and stop-loss before any trade.</div>
           </section>
         )}
@@ -2125,79 +2207,43 @@ export default function App() {
       </main>
 
       {/* ============================================================== */}
-      {/* MODAL: CORE TRADING RULES — READ ONLY, NO CHECKLIST             */}
+      {/* MODAL: EDITABLE TRADING RULES — THREE-DOT ACTIONS              */}
       {/* ============================================================== */}
       {isRulesOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
-          <div className="max-w-2xl w-full max-h-[85vh] overflow-y-auto p-5 sm:p-6 rounded-2xl bg-[#0f1524] border border-slate-800 space-y-5 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3 sticky top-0 bg-[#0f1524]">
-              <div className="flex items-center space-x-2">
-                <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400">
-                  <ShieldCheck className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-white">Core Trading Rules</h3>
-                  <p className="text-[11px] text-slate-400">Read before trading · No checkboxes</p>
-                </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 backdrop-blur-sm sm:p-5">
+          <div className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-slate-700 bg-[#0b1120] shadow-2xl">
+            <div className="flex items-center justify-between border-b border-slate-800 bg-[#0f1524] px-4 py-4 sm:px-6">
+              <div className="flex items-center gap-3">
+                <div className="rounded-xl bg-amber-500/15 p-2 text-amber-300"><ShieldCheck className="h-5 w-5" /></div>
+                <div><h3 className="text-base font-black text-white">Core Trading Rules</h3><p className="text-xs text-slate-400">Edit, pin or delete any rule · Auto-saved in this browser</p></div>
               </div>
-              <button type="button" onClick={() => setIsRulesOpen(false)} aria-label="Close trading rules" className="text-slate-400 hover:text-white p-1">
-                <X className="w-5 h-5" />
-              </button>
+              <button type="button" onClick={() => { setIsRulesOpen(false); setOpenRuleMenuId(null); setEditingRuleId(null); }} aria-label="Close trading rules" className="rounded-lg p-2 text-slate-400 hover:bg-slate-800 hover:text-white"><X className="h-5 w-5" /></button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-              <div className="p-3 rounded-xl bg-[#141b2d] border border-slate-800">
-                <div className="font-bold text-cyan-300 mb-1">01 · Trade the plan</div>
-                <p className="text-slate-300 leading-relaxed">Entry se pehle setup, entry trigger, stop-loss aur exit plan clear hona chahiye. Sirf scenario label ya guess par trade mat lo.</p>
-              </div>
-              <div className="p-3 rounded-xl bg-[#141b2d] border border-slate-800">
-                <div className="font-bold text-cyan-300 mb-1">02 · Key levels par hi act karo</div>
-                <p className="text-slate-300 leading-relaxed">EOS/EOR/diversion ya apne predefined level par price behaviour dekho. Mid-range mein FOMO entry avoid karo.</p>
-              </div>
-              <div className="p-3 rounded-xl bg-[#141b2d] border border-slate-800">
-                <div className="font-bold text-cyan-300 mb-1">03 · Confirmation ka wait</div>
-                <p className="text-slate-300 leading-relaxed">Touch alone signal nahi hai. Rejection, breakout/retest ya apne tested trigger ki confirmation ke baad hi entry consider karo.</p>
-              </div>
-              <div className="p-3 rounded-xl bg-[#141b2d] border border-slate-800">
-                <div className="font-bold text-cyan-300 mb-1">04 · Risk pehle calculate karo</div>
-                <p className="text-slate-300 leading-relaxed">Stop-loss entry se pehle set karo. Quantity aise rakho ki stop hit hone par loss tumhari predefined risk limit ke andar rahe; fixed rupee amount sabke liye sahi nahi hota.</p>
-              </div>
-              <div className="p-3 rounded-xl bg-[#141b2d] border border-slate-800">
-                <div className="font-bold text-emerald-300 mb-1">05 · Reward vs risk check</div>
-                <p className="text-slate-300 leading-relaxed">Trade ka realistic target aur risk compare karo. Agar potential reward tumhare tested plan ke hisaab se worthwhile nahi, trade skip karo.</p>
-              </div>
-              <div className="p-3 rounded-xl bg-[#141b2d] border border-slate-800">
-                <div className="font-bold text-emerald-300 mb-1">06 · Loss ko aur bada mat karo</div>
-                <p className="text-slate-300 leading-relaxed">Stop-loss ko door mat shift karo, losing position mein bina plan averaging mat karo, aur loss recover karne ke liye impulsive trade mat lo.</p>
-              </div>
-              <div className="p-3 rounded-xl bg-[#141b2d] border border-slate-800">
-                <div className="font-bold text-amber-300 mb-1">07 · SOC means wait</div>
-                <p className="text-slate-300 leading-relaxed">Signals conflicting hon, level unclear ho, ya market bahut fast ho to no-trade bhi valid decision hai. Har move pakadna zaroori nahi.</p>
-              </div>
-              <div className="p-3 rounded-xl bg-[#141b2d] border border-slate-800">
-                <div className="font-bold text-amber-300 mb-1">08 · Daily loss limit rakho</div>
-                <p className="text-slate-300 leading-relaxed">Daily max-loss limit pehle decide karo. Limit hit ho to trading band karo; revenge trading aur repeated re-entry se bacho.</p>
-              </div>
-              <div className="p-3 rounded-xl bg-[#141b2d] border border-slate-800">
-                <div className="font-bold text-violet-300 mb-1">09 · Options mein extra caution</div>
-                <p className="text-slate-300 leading-relaxed">Option premium volatility, time decay, spread aur slippage se affect hota hai. Liquid contracts use karo aur order execution ka risk samajhkar trade karo.</p>
-              </div>
-              <div className="p-3 rounded-xl bg-[#141b2d] border border-slate-800">
-                <div className="font-bold text-violet-300 mb-1">10 · Journal and review</div>
-                <p className="text-slate-300 leading-relaxed">Har trade ka reason, risk, exit aur rule-following record karo. Results ko kaafi trades ke sample par review karo; ek trade se strategy judge mat karo.</p>
-              </div>
+            <div className="space-y-3 overflow-y-auto p-4 sm:p-6">
+              {rules.length === 0 && <div className="rounded-xl border border-dashed border-slate-700 p-8 text-center text-sm text-slate-400">All rules deleted. You can keep this section empty or restore rules by refreshing only if no saved rules exist.</div>}
+              {[...rules].sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))).map((rule, index) => (
+                <article key={rule.id} className={`relative rounded-xl border p-4 ${NOTE_COLORS[rule.color] || NOTE_COLORS.cyan}`}>
+                  {editingRuleId === rule.id ? (
+                    <div className="space-y-3">
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400">Rule heading<input value={ruleTitleDraft} onChange={(e) => setRuleTitleDraft(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-700 bg-[#080d17] px-3 py-2 text-sm font-bold text-white outline-none focus:border-cyan-400" placeholder="Rule heading" /></label>
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-400">Rule details<textarea value={ruleContentDraft} onChange={(e) => setRuleContentDraft(e.target.value)} rows={4} className="mt-1 w-full resize-y rounded-lg border border-slate-700 bg-[#080d17] px-3 py-2 text-sm leading-6 text-slate-200 outline-none focus:border-cyan-400" placeholder="Write your rule..." /></label>
+                      <div className="flex flex-wrap justify-end gap-2"><button type="button" onClick={() => setEditingRuleId(null)} className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-semibold text-slate-300 hover:bg-slate-800">Cancel</button><button type="button" onClick={() => saveRuleEdit(rule.id)} className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-400 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-cyan-300"><Check className="h-3.5 w-3.5" />Save rule</button></div>
+                    </div>
+                  ) : (
+                    <div className="flex items-start gap-3">
+                      <div className="min-w-0 flex-1"><div className="mb-1 flex flex-wrap items-center gap-2"><span className="text-[10px] font-black uppercase tracking-[0.15em] opacity-70">Rule {String(index + 1).padStart(2, '0')}</span>{rule.pinned && <Pin className="h-3.5 w-3.5 text-amber-300" />}</div><h4 className="text-sm font-black text-white sm:text-base">{rule.title}</h4><p className="mt-1 whitespace-pre-wrap text-xs leading-6 text-slate-300 sm:text-sm">{rule.content}</p></div>
+                      <div className="relative shrink-0">
+                        <button type="button" title="Rule actions" aria-label={`Actions for ${rule.title}`} onClick={() => setOpenRuleMenuId((current) => current === rule.id ? null : rule.id)} className="rounded-lg p-1.5 text-slate-300 hover:bg-black/20 hover:text-white"><MoreVertical className="h-4 w-4" /></button>
+                        {openRuleMenuId === rule.id && <div className="absolute right-0 top-9 z-20 w-36 rounded-xl border border-slate-700 bg-[#080d17] p-1.5 shadow-2xl"><button type="button" onClick={() => startRuleEdit(rule)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-slate-200 hover:bg-slate-800"><Pencil className="h-3.5 w-3.5" />Edit</button><button type="button" onClick={() => { setRules((current) => current.map((item) => item.id === rule.id ? { ...item, pinned: !item.pinned } : item)); setOpenRuleMenuId(null); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-slate-200 hover:bg-slate-800"><Pin className="h-3.5 w-3.5" />{rule.pinned ? 'Unpin' : 'Pin'}</button><button type="button" onClick={() => deleteRule(rule.id)} className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs text-rose-300 hover:bg-rose-500/10"><Trash2 className="h-3.5 w-3.5" />Delete</button></div>}
+                      </div>
+                    </div>
+                  )}
+                </article>
+              ))}
+              <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 p-3"><p className="mb-1 text-xs font-bold text-rose-300">Non-negotiable</p><p className="text-xs leading-5 text-slate-300">Capital protection first. Guaranteed setup nahi hota. Ye educational discipline rules hain, profit guarantee ya personalized financial advice nahi.</p></div>
             </div>
-
-            <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 p-3">
-              <p className="text-xs font-bold text-rose-300 mb-1">Non-negotiable</p>
-              <p className="text-xs text-slate-300 leading-relaxed">Capital protection first. Guaranteed setup nahi hota. Ye educational discipline rules hain, profit guarantee ya personalized financial advice nahi.</p>
-            </div>
-
-            <div className="flex justify-end pt-2 border-t border-slate-800">
-              <button type="button" onClick={() => setIsRulesOpen(false)} className="px-5 py-2 text-xs font-bold rounded-lg bg-cyan-400 text-black hover:bg-cyan-300 transition-all">
-                Close Rules
-              </button>
-            </div>
+            <div className="flex justify-end border-t border-slate-800 bg-[#0f1524] p-4"><button type="button" onClick={() => { setIsRulesOpen(false); setOpenRuleMenuId(null); setEditingRuleId(null); }} className="rounded-lg bg-cyan-400 px-5 py-2.5 text-xs font-bold text-slate-950 hover:bg-cyan-300">Close Rules</button></div>
           </div>
         </div>
       )}
